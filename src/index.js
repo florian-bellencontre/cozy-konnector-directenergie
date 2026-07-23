@@ -224,10 +224,16 @@ class TemplateContentScript extends ContentScript {
     // redirects this URL to the logged-in home page (hence the gerer-mes-comptes
     // link in the race below).
     await this.goto(LOGIN_URL)
-    // DIAGNOSTIC: dump what the worker actually receives, so we can tell from the
-    // Cozy logs whether the worker lands on the login page, a WAF block page, or
-    // something else. To be removed once the navigation is confirmed working.
-    await this.dumpWorkerPage('after goto LOGIN_URL')
+    // DIAGNOSTIC: goto() does not wait for the page to load, so we wait for the
+    // body/load event first, then dump what the worker actually receives, to tell
+    // from the Cozy logs whether it lands on the login page, a WAF block page, an
+    // iframe, or something else. To be removed once navigation is confirmed.
+    try {
+      await this.waitForElementInWorker('body', { timeout: 15000 })
+    } catch (err) {
+      this.log('warn', `🔎 waiting for body failed: ${err.message}`)
+    }
+    await this.dumpWorkerPage('after goto LOGIN_URL + body')
     await this.PromiseRaceWithError(
       [
         this.waitForErrors(),
@@ -246,9 +252,16 @@ class TemplateContentScript extends ContentScript {
   async dumpWorkerPage(label) {
     try {
       const info = await this.evaluateInWorker(function dumpPage() {
+        const bodyText = document.body ? document.body.innerText : ''
         return {
           url: document.location.href,
+          readyState: document.readyState,
           title: document.title,
+          htmlLength: document.documentElement
+            ? document.documentElement.outerHTML.length
+            : 0,
+          inputCount: document.querySelectorAll('input').length,
+          iframeCount: document.querySelectorAll('iframe').length,
           hasLoginField: Boolean(
             document.querySelector('#formz-authentification-form-login')
           ),
@@ -258,9 +271,11 @@ class TemplateContentScript extends ContentScript {
             )
           ),
           hasCaptchaFrame: Boolean(document.querySelector('#captcha__frame')),
-          bodyStart: document.body
-            ? document.body.innerText.replace(/\s+/g, ' ').trim().slice(0, 300)
-            : 'NO BODY'
+          looksLikeWaf:
+            /Accès temporairement restreint|Request Rejected|Access Denied|Incapsula|not a robot/i.test(
+              bodyText
+            ),
+          bodyStart: bodyText.replace(/\s+/g, ' ').trim().slice(0, 300)
         }
       })
       this.log('warn', `🔎 dumpWorkerPage [${label}]: ${JSON.stringify(info)}`)
