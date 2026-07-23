@@ -783,14 +783,35 @@ class TemplateContentScript extends ContentScript {
         'info',
         `Boolean(contractInfosElement) : ${Boolean(contractInfosElement)}`
       )
-      const foundAddress = contractInfosElement
-        .querySelector('div > div > p')
-        .textContent.replace(/\n/g, '')
+      // The website markup changed (address used to be under 'div > div > p' and
+      // the contract ref under 'div > div > div > span'). Those positional selectors
+      // broke and left clientRefs empty. We now anchor on the stable "Ref client"
+      // text label instead of the DOM path: the contract ref lives in the <span> of
+      // the paragraph containing "Ref client", and the address is the paragraph
+      // right before it (the contract block only holds those two paragraphs).
+      const paragraphs = Array.from(contractInfosElement.querySelectorAll('p'))
+      const refClientIndex = paragraphs.findIndex(p =>
+        p.textContent.includes('Ref client')
+      )
+      const refClientParagraph =
+        refClientIndex > -1 ? paragraphs[refClientIndex] : null
+      const addressParagraph =
+        refClientIndex > 0 ? paragraphs[refClientIndex - 1] : paragraphs[0]
+      const foundAddress = addressParagraph?.textContent
+        .replace(/\n/g, '')
         .replace(',', '')
         .trim()
-      const foundContractRef = contractInfosElement.querySelector(
-        'div > div > div > span'
-      ).textContent
+      const foundContractRef = refClientParagraph
+        ?.querySelector('span')
+        ?.textContent.trim()
+      if (!foundAddress || !foundContractRef) {
+        this.log(
+          'warn',
+          `Missing contract info on homepage (address: ${Boolean(
+            foundAddress
+          )}, ref: ${Boolean(foundContractRef)})`
+        )
+      }
       clientRefs.push({
         linkedAddress: foundAddress,
         contractNumber: foundContractRef
