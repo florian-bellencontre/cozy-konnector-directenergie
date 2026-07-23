@@ -6419,6 +6419,10 @@ class TemplateContentScript extends cozy_clisk_dist_contentscript__WEBPACK_IMPOR
     // redirects this URL to the logged-in home page (hence the gerer-mes-comptes
     // link in the race below).
     await this.goto(LOGIN_URL)
+    // DIAGNOSTIC: dump what the worker actually receives, so we can tell from the
+    // Cozy logs whether the worker lands on the login page, a WAF block page, or
+    // something else. To be removed once the navigation is confirmed working.
+    await this.dumpWorkerPage('after goto LOGIN_URL')
     await this.PromiseRaceWithError(
       [
         this.waitForErrors(),
@@ -6432,6 +6436,32 @@ class TemplateContentScript extends cozy_clisk_dist_contentscript__WEBPACK_IMPOR
       await this.handleError()
     }
     return true
+  }
+
+  async dumpWorkerPage(label) {
+    try {
+      const info = await this.evaluateInWorker(function dumpPage() {
+        return {
+          url: document.location.href,
+          title: document.title,
+          hasLoginField: Boolean(
+            document.querySelector('#formz-authentification-form-login')
+          ),
+          hasGererComptes: Boolean(
+            document.querySelector(
+              'a[href="/clients/mon-compte/gerer-mes-comptes"]'
+            )
+          ),
+          hasCaptchaFrame: Boolean(document.querySelector('#captcha__frame')),
+          bodyStart: document.body
+            ? document.body.innerText.replace(/\s+/g, ' ').trim().slice(0, 300)
+            : 'NO BODY'
+        }
+      })
+      this.log('warn', `🔎 dumpWorkerPage [${label}]: ${JSON.stringify(info)}`)
+    } catch (err) {
+      this.log('warn', `🔎 dumpWorkerPage [${label}] failed: ${err.message}`)
+    }
   }
 
   async ensureAuthenticated({ account }) {
