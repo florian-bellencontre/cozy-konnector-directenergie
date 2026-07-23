@@ -6837,9 +6837,12 @@ class TemplateContentScript extends cozy_clisk_dist_contentscript__WEBPACK_IMPOR
 
   async fetchContracts() {
     this.log('info', 'fetchContracts starts')
+    // The contract page was redesigned: the old '[data-cs-override-id=
+    // "offreDescription"]' block no longer exists. We now wait for the contract
+    // PDF download link, whose href carries the downloadContrat action.
     await this.clickAndWait(
       'a[href="/clients/mon-compte/mon-contrat"]',
-      '[data-cs-override-id="offreDescription"]'
+      'a[href*="downloadContrat"]'
     )
     await this.runInWorkerUntilTrue({ method: 'checkContractPageTitle' })
     await this.runInWorker('getContract')
@@ -7119,46 +7122,97 @@ class TemplateContentScript extends cozy_clisk_dist_contentscript__WEBPACK_IMPOR
 
   async getBills() {
     this.log('info', 'getBills starts')
-    const electricInvoices = await this.getElectricInvoices()
-    let separationIndex
-    if (electricInvoices.length) {
-      separationIndex = electricInvoices.length - 1
-    } else {
-      separationIndex = null
+    // The invoices history is paginated (pager-page__nav / pager-page__item):
+    // clicking "Suivante" replaces the container content with the next page, so
+    // we must scrape each page, then move on, accumulating the computed
+    // documents across all pages. The old code only read the first page.
+    const allDocuments = []
+    let pageIndex = 0
+    let hasNextPage = true
+    while (hasNextPage) {
+      pageIndex++
+      this.log('info', `getBills - scraping invoices page ${pageIndex}`)
+      const electricInvoices = await this.getElectricInvoices()
+      const separationIndex = electricInvoices.length
+        ? electricInvoices.length - 1
+        : null
+      const gazInvoices = await this.getGazInvoices()
+      const invoices = electricInvoices.concat(gazInvoices)
+      const schedules = await this.getSchedules()
+      const pageDocuments = await this.computeInformations(
+        invoices,
+        separationIndex,
+        schedules
+      )
+      allDocuments.push(...pageDocuments)
+      hasNextPage = await this.goToNextInvoicesPage()
     }
-    const gazInvoices = await this.getGazInvoices()
-    const invoices = electricInvoices.concat(gazInvoices)
-    const schedules = await this.getSchedules()
-    const allDocuments = await this.computeInformations(
-      invoices,
-      separationIndex,
-      schedules
-    )
     await this.sendToPilot({ allDocuments })
+    return true
+  }
+
+  // Click the invoices pager "Suivante" button and wait for the container to be
+  // refreshed with the next page. Returns false when there is no next page (the
+  // button is absent or disabled), true once the next page is loaded.
+  async goToNextInvoicesPage() {
+    const nextButton = Array.from(
+      document.querySelectorAll('.pager-page__nav')
+    ).find(element => /suivante/i.test(element.textContent))
+    if (!nextButton || nextButton.classList.contains('var--disabled')) {
+      this.log('info', 'goToNextInvoicesPage - no more invoices pages')
+      return false
+    }
+    const firstRefBefore =
+      document
+        .querySelector('#js--historique-container-elec .detail-facture')
+        ?.textContent.trim() || ''
+    nextButton.click()
+    // Wait until the pager marks a new active page and the container content
+    // actually changed, so we don't scrape the same page twice.
+    await (0,p_wait_for__WEBPACK_IMPORTED_MODULE_2__["default"])(
+      () => {
+        const firstRefNow =
+          document
+            .querySelector('#js--historique-container-elec .detail-facture')
+            ?.textContent.trim() || ''
+        return firstRefNow !== firstRefBefore
+      },
+      {
+        interval: 500,
+        timeout: {
+          milliseconds: 15000,
+          message: new p_wait_for__WEBPACK_IMPORTED_MODULE_2__.TimeoutError(
+            'goToNextInvoicesPage timed out waiting for next page'
+          )
+        }
+      }
+    )
     return true
   }
 
   async getContract() {
     this.log('info', 'getContract starts')
-    const contractElement = document.querySelector(
-      '[data-cs-override-id="offreDescription"]'
-    )
-    const offerName = contractElement
-      // First p tag is the starting date of the contract
-      .querySelector('p')
-      .innerHTML.replace(/  {2}|\n/g, '')
-      .trim()
-    const rawStartDate = contractElement.querySelector(
-      'p[class="font-700"]'
-    ).innerHTML
-    const splittedStartDate = rawStartDate.split('/')
-    const day = splittedStartDate[0]
-    const month = splittedStartDate[1]
-    const year = splittedStartDate[2]
-    const startDate = new Date(year, month, day)
-    const href = contractElement
-      .querySelector('a[href*="/telechargement-des-contrats"]')
-      .getAttribute('href')
+    // The contract page was redesigned. The contract PDF is now a link whose
+    // href carries the downloadContrat action (a sibling link with
+    // downloadJustificatifDomicile is the address proof, which we must not
+    // pick). The offer name and start date live in the same c-frame as a
+    // "Offre …" headline followed by a "Souscrit le DD/MM/YYYY" text.
+    const downloadLink = document.querySelector('a[href*="downloadContrat"]')
+    const offerElement = Array.from(
+      document.querySelectorAll('p.text-headline-s')
+    ).find(element => /^Offre/i.test(element.textContent.trim()))
+    const contractFrame =
+      offerElement?.closest('.c-frame') || offerElement?.parentElement
+    const offerName = offerElement
+      ? offerElement.textContent.replace(/\s+/g, ' ').trim()
+      : 'Contrat'
+    const frameText = contractFrame ? contractFrame.textContent : ''
+    const startDateMatch = frameText.match(/(\d{2})\/(\d{2})\/(\d{4})/)
+    const day = startDateMatch ? startDateMatch[1] : '01'
+    const month = startDateMatch ? startDateMatch[2] : '01'
+    const year = startDateMatch ? startDateMatch[3] : '1970'
+    const startDate = new Date(`${month}/${day}/${year}`)
+    const href = downloadLink.getAttribute('href')
     const fileurl = `https://www.totalenergies.fr${href}`
     const filename = `${year}-${month}-${day}_TotalEnergie_Contrat_${offerName.replaceAll(
       ' ',
