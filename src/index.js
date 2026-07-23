@@ -967,20 +967,17 @@ class TemplateContentScript extends ContentScript {
       this.log('info', 'goToNextInvoicesPage - no more invoices pages')
       return false
     }
-    const firstRefBefore =
-      document
-        .querySelector('#js--historique-container-elec .detail-facture')
-        ?.textContent.trim() || ''
+    // Track the first invoice of the page (electric or gaz, whichever exists)
+    // so the change detection works for gaz-only accounts too.
+    const firstInvoiceText = () =>
+      document.querySelector('.detail-facture')?.textContent.trim() || ''
+    const firstRefBefore = firstInvoiceText()
     nextButton.click()
-    // Wait until the pager marks a new active page and the container content
-    // actually changed, so we don't scrape the same page twice.
+    // Wait until the first invoice actually changed, so we don't scrape the same
+    // page twice (the pager updates the container in place without a navigation).
     await waitFor(
       () => {
-        const firstRefNow =
-          document
-            .querySelector('#js--historique-container-elec .detail-facture')
-            ?.textContent.trim() || ''
-        return firstRefNow !== firstRefBefore
+        return firstInvoiceText() !== firstRefBefore
       },
       {
         interval: 500,
