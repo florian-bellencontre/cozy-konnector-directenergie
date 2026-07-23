@@ -6201,7 +6201,7 @@ __webpack_require__.r(__webpack_exports__);
 const log = _cozy_minilog__WEBPACK_IMPORTED_MODULE_1___default()('ContentScript')
 _cozy_minilog__WEBPACK_IMPORTED_MODULE_1___default().enable('totalenergiesCCC')
 
-const baseUrl = 'https://www.totalenergies.fr/'
+const LOGIN_URL = 'https://www.totalenergies.fr/clients/connexion'
 const MAINTENANCE_URL = 'https://maintenance.direct-energie.com'
 const HOMEPAGE_URL =
   'https://www.totalenergies.fr/clients/accueil#fz-authentificationForm'
@@ -6410,12 +6410,20 @@ class TemplateContentScript extends cozy_clisk_dist_contentscript__WEBPACK_IMPOR
 
   async navigateToLoginForm() {
     this.log('info', '🤖 navigateToLoginForm starts')
-    await this.goto(baseUrl)
+    // We navigate straight to the login URL instead of clicking the "Espace Client"
+    // button. On the public homepage that button is present in the DOM but hidden
+    // (responsive header), so clicking it in the worker did not trigger the
+    // navigation and navigateToLoginForm timed out waiting for the login form.
+    // The button only points to /clients/connexion, so going there directly is
+    // both simpler and more robust. When a session is still active, the site
+    // redirects this URL to the logged-in home page (hence the gerer-mes-comptes
+    // link in the race below).
+    await this.goto(LOGIN_URL)
     await this.PromiseRaceWithError(
       [
         this.waitForErrors(),
         this.waitForElementInWorker(
-          'a[title="Espace Client"], #formz-authentification-form-login'
+          '#formz-authentification-form-login, a[href="/clients/mon-compte/gerer-mes-comptes"], #captcha__frame'
         )
       ],
       'navigateToLoginForm: waiting for errors, login form or captcha frame'
@@ -6423,14 +6431,7 @@ class TemplateContentScript extends cozy_clisk_dist_contentscript__WEBPACK_IMPOR
     if (this.store.foundError) {
       await this.handleError()
     }
-    if (await this.isElementInWorker('#formz-authentification-form-login')) {
-      this.log('info', 'baseUrl leads to loginForm, continue')
-      return true
-    }
-    await this.runInWorker('click', 'a[title="Espace Client"]')
-    await this.waitForElementInWorker(
-      '#formz-authentification-form-login, a[href="/clients/mon-compte/gerer-mes-comptes"], #captcha__frame'
-    )
+    return true
   }
 
   async ensureAuthenticated({ account }) {
