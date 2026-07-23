@@ -6410,72 +6410,49 @@ class TemplateContentScript extends cozy_clisk_dist_contentscript__WEBPACK_IMPOR
 
   async navigateToLoginForm() {
     this.log('info', '🤖 navigateToLoginForm starts')
-    // We navigate straight to the login URL instead of clicking the "Espace Client"
-    // button. On the public homepage that button is present in the DOM but hidden
-    // (responsive header), so clicking it in the worker did not trigger the
-    // navigation and navigateToLoginForm timed out waiting for the login form.
-    // The button only points to /clients/connexion, so going there directly is
-    // both simpler and more robust. When a session is still active, the site
-    // redirects this URL to the logged-in home page (hence the gerer-mes-comptes
-    // link in the race below).
+    // The login URL (/clients/connexion) is protected by DataDome (its raw
+    // response for the worker is a ~779B shell whose only script is
+    // ct.captcha-delivery.com/i.js). In a real browser DataDome clears the
+    // challenge and the page resolves to the login form (or to the logged-in
+    // home page when a session is active), but in the konnector worker the
+    // challenge is never cleared, so neither the login form nor the
+    // gerer-mes-comptes link ever appears and the old code timed out for 60s.
+    //
+    // So we do not hard-wait for the login form here. We race the known "good"
+    // outcomes against a short timeout; if none is reached (DataDome shell), we
+    // return false so the caller falls back to visible manual authentication,
+    // where the user solves the challenge and logs in.
     await this.goto(LOGIN_URL)
-    // DIAGNOSTIC: goto() does not wait for the page to load, so we wait for the
-    // body/load event first, then dump what the worker actually receives, to tell
-    // from the Cozy logs whether it lands on the login page, a WAF block page, an
-    // iframe, or something else. To be removed once navigation is confirmed.
-    try {
-      await this.waitForElementInWorker('body', { timeout: 15000 })
-    } catch (err) {
-      this.log('warn', `🔎 waiting for body failed: ${err.message}`)
-    }
-    await this.dumpWorkerPage('after goto LOGIN_URL + body')
-    await this.PromiseRaceWithError(
-      [
-        this.waitForErrors(),
-        this.waitForElementInWorker(
-          '#formz-authentification-form-login, a[href="/clients/mon-compte/gerer-mes-comptes"], #captcha__frame'
-        )
-      ],
-      'navigateToLoginForm: waiting for errors, login form or captcha frame'
-    )
+    const reachedKnownState = await this.waitForKnownLoginState()
     if (this.store.foundError) {
       await this.handleError()
     }
-    return true
+    return reachedKnownState
   }
 
-  async dumpWorkerPage(label) {
+  // Wait, with a short timeout, for any state we know how to handle after
+  // landing on the login URL: the login form, the logged-in home page, or a
+  // captcha frame. Returns true if one appeared, false on timeout (typically a
+  // DataDome anti-bot shell that never resolves for the worker).
+  async waitForKnownLoginState() {
     try {
-      const info = await this.evaluateInWorker(function dumpPage() {
-        const bodyText = document.body ? document.body.innerText : ''
-        return {
-          url: document.location.href,
-          readyState: document.readyState,
-          title: document.title,
-          htmlLength: document.documentElement
-            ? document.documentElement.outerHTML.length
-            : 0,
-          inputCount: document.querySelectorAll('input').length,
-          iframeCount: document.querySelectorAll('iframe').length,
-          hasLoginField: Boolean(
-            document.querySelector('#formz-authentification-form-login')
-          ),
-          hasGererComptes: Boolean(
-            document.querySelector(
-              'a[href="/clients/mon-compte/gerer-mes-comptes"]'
-            )
-          ),
-          hasCaptchaFrame: Boolean(document.querySelector('#captcha__frame')),
-          looksLikeWaf:
-            /Accès temporairement restreint|Request Rejected|Access Denied|Incapsula|not a robot/i.test(
-              bodyText
-            ),
-          bodyStart: bodyText.replace(/\s+/g, ' ').trim().slice(0, 300)
-        }
-      })
-      this.log('warn', `🔎 dumpWorkerPage [${label}]: ${JSON.stringify(info)}`)
+      await this.PromiseRaceWithError(
+        [
+          this.waitForErrors(),
+          this.waitForElementInWorker(
+            '#formz-authentification-form-login, a[href="/clients/mon-compte/gerer-mes-comptes"], #captcha__frame',
+            { timeout: 15000 }
+          )
+        ],
+        'navigateToLoginForm: waiting for errors, login form or captcha frame'
+      )
+      return true
     } catch (err) {
-      this.log('warn', `🔎 dumpWorkerPage [${label}] failed: ${err.message}`)
+      this.log(
+        'warn',
+        `No known login state reached (likely DataDome anti-bot): ${err.message}`
+      )
+      return false
     }
   }
 
@@ -6487,7 +6464,18 @@ class TemplateContentScript extends cozy_clisk_dist_contentscript__WEBPACK_IMPOR
       await this.ensureNotAuthenticated()
       await this.waitForUserAuthentication()
     } else {
-      await this.navigateToLoginForm()
+      const reachedLoginForm = await this.navigateToLoginForm()
+      if (!reachedLoginForm) {
+        // The login form never appeared (DataDome shell). Auto-login is not
+        // possible in this state, so fall back to visible manual authentication:
+        // the user solves the challenge and logs in, then we resume.
+        this.log(
+          'info',
+          'Login form unreachable, falling back to manual authentication'
+        )
+        await this.waitForUserAuthentication()
+        return true
+      }
       const auth = await this.authWithCredentials(credentials)
       if (auth) {
         return true
