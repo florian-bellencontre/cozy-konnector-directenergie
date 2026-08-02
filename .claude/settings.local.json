@@ -1,0 +1,23 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(rtk grep *)",
+      "Bash(rtk ls *)",
+      "Bash(rtk git *)",
+      "Bash(node -e \"console.log\\(require\\('./node_modules/cozy-clisk/package.json'\\).version\\)\")",
+      "WebFetch(domain:apps-registry.cozycloud.cc)",
+      "Bash(rtk gh *)",
+      "WebFetch(domain:github.com)",
+      "WebFetch(domain:api.github.com)",
+      "Bash(DISPLAY=:0 node te-diag.mjs)",
+      "Bash(yarn lint *)",
+      "Bash(git remote *)",
+      "Bash(git ls-tree *)",
+      "Bash(DEPLOY_REPOSITORY=git@github.com:florian-bellencontre/cozy-konnector-directenergie.git DEPLOY_BRANCH=build yarn deploy)",
+      "Bash(git checkout *)",
+      "Bash(grep -vE \"^yarn|^\\\\\\\\$|Browserslist|caniuse|update-browserslist|Why you should|info Visit|^\\\\\\\\s*$\")",
+      "Bash(echo \"=== exit: $? ===\")",
+      "Bash(yarn build *)"
+    ]
+  }
+}
