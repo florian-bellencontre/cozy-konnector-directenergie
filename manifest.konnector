@@ -6,6 +6,7 @@
   "clientSide": true,
   "icon": "icon.svg",
   "slug": "directenergie",
+  "banksTransactionRegExp": "\\b(total\\s?energies?|direct energie)\\b",
   "source": "git@github.com:konnectors/cozy-konnector-directenergie.git",
   "editor": "Cozy",
   "vendor_link": "https://www.totalenergies.fr/",
