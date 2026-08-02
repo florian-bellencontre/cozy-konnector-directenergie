@@ -6206,6 +6206,13 @@ const MAINTENANCE_URL = 'https://maintenance.direct-energie.com'
 const HOMEPAGE_URL =
   'https://www.totalenergies.fr/clients/accueil#fz-authentificationForm'
 
+// Regexp Cozy Banks uses to reconcile a bill with its bank transaction. The
+// SEPA direct-debit labels read like "PRLV SEPA TOTALENERGIES ELECTRI...", so
+// we match "totalenergies"/"total energies" (and the legacy "direct energie").
+// Attached to every saved bill via matchingCriterias.labelRegex — relying on
+// the manifest brand regexp alone proved unreliable for reconciliation.
+const BANK_LABEL_REGEXP = '\\b(total\\s?energies?|direct energie)\\b'
+
 // Keeping this urls around in case they're needed in the future
 // const contractSelectionPage =
 //   'https://www.totalenergies.fr/clients/selection-compte'
@@ -6473,7 +6480,7 @@ class TemplateContentScript extends cozy_clisk_dist_contentscript__WEBPACK_IMPOR
           'info',
           'Login form unreachable, falling back to manual authentication'
         )
-        await this.waitForUserAuthentication()
+        await this.waitForUserAuthentication(credentials)
         return true
       }
       const auth = await this.authWithCredentials(credentials)
@@ -6500,11 +6507,41 @@ class TemplateContentScript extends cozy_clisk_dist_contentscript__WEBPACK_IMPOR
     return true
   }
 
-  async waitForUserAuthentication() {
+  async waitForUserAuthentication(credentials) {
     this.log('info', 'waitForUserAuthentication starts')
     await this.setWorkerState({ visible: true })
+    // If Cozy already has the credentials, prefill the login form so the user
+    // only has to solve the challenge (DataDome/captcha) and submit, instead
+    // of retyping an email and password we already know.
+    if (credentials?.login) {
+      await this.prefillLoginForm(credentials)
+    }
     await this.runInWorkerUntilTrue({ method: 'waitForAuthenticated' })
     await this.setWorkerState({ visible: false })
+  }
+
+  async prefillLoginForm(credentials) {
+    // The page is shown to the user (typically after a DataDome shell that
+    // blocked auto-login). The real login form can take a while to appear —
+    // the user may first need to clear the anti-bot challenge — so we wait for
+    // it with a generous timeout and simply skip prefilling if it never shows.
+    let formAppeared = false
+    try {
+      await this.waitForElementInWorker('#formz-authentification-form-login', {
+        timeout: 60000
+      })
+      formAppeared = true
+    } catch (err) {
+      this.log(
+        'info',
+        `Login form did not appear, skipping prefill: ${err.message}`
+      )
+    }
+    if (!formAppeared) {
+      return
+    }
+    this.log('info', 'Prefilling login form with stored credentials')
+    await this.runInWorker('fillingForm', credentials)
   }
 
   async getUserDataFromWebsite() {
@@ -6884,7 +6921,7 @@ class TemplateContentScript extends cozy_clisk_dist_contentscript__WEBPACK_IMPOR
           'info',
           'Webiste is asking for captcha completion. Showing page to user'
         )
-        await this.waitForUserAuthentication()
+        await this.waitForUserAuthentication(credentials)
       }
     }
   }
@@ -7309,6 +7346,9 @@ class TemplateContentScript extends cozy_clisk_dist_contentscript__WEBPACK_IMPOR
         fileurl,
         fileIdAttributes: ['vendorRef'],
         vendor: 'Total Energies',
+        matchingCriterias: {
+          labelRegex: BANK_LABEL_REGEXP
+        },
         fileAttributes: {
           metadata: {
             contentAuthor: 'totalenergies.fr',
@@ -7415,6 +7455,9 @@ class TemplateContentScript extends cozy_clisk_dist_contentscript__WEBPACK_IMPOR
         fileurl,
         fileIdAttributes: ['vendorRef'],
         vendor: 'Total Energies',
+        matchingCriterias: {
+          labelRegex: BANK_LABEL_REGEXP
+        },
         fileAttributes: {
           metadata: {
             contentAuthor: 'totalenergies.fr',
