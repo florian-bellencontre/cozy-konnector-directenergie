@@ -6550,11 +6550,8 @@ class TemplateContentScript extends cozy_clisk_dist_contentscript__WEBPACK_IMPOR
     await this.PromiseRaceWithError(
       [
         this.waitForErrors(),
-        this.waitForElementInWorker('h2', {
-          includesText: 'Conso électricité'
-        }),
-        this.waitForElementInWorker('h2', {
-          includesText: 'Conso gaz'
+        this.waitForElementInWorker('h1', {
+          includesText: 'Bienvenue sur votre Espace Client'
         }),
         this.waitForElementInWorker('p', {
           includesText:
@@ -7052,27 +7049,19 @@ class TemplateContentScript extends cozy_clisk_dist_contentscript__WEBPACK_IMPOR
         'info',
         `Boolean(contractInfosElement) : ${Boolean(contractInfosElement)}`
       )
-      // The website markup changed (address used to be under 'div > div > p' and
-      // the contract ref under 'div > div > div > span'). Those positional selectors
-      // broke and left clientRefs empty. We now anchor on the stable "Ref client"
-      // text label instead of the DOM path: the contract ref lives in the <span> of
-      // the paragraph containing "Ref client", and the address is the paragraph
-      // right before it (the contract block only holds those two paragraphs).
-      const paragraphs = Array.from(contractInfosElement.querySelectorAll('p'))
-      const refClientIndex = paragraphs.findIndex(p =>
-        p.textContent.includes('Ref client')
-      )
-      const refClientParagraph =
-        refClientIndex > -1 ? paragraphs[refClientIndex] : null
-      const addressParagraph =
-        refClientIndex > 0 ? paragraphs[refClientIndex - 1] : paragraphs[0]
-      const foundAddress = addressParagraph?.textContent
+      // The homepage markup changed again (Sept 2026): the address stays in a <p>
+      // but the contract ref moved into a <div> (no longer a <p>). Anchor the ref on
+      // the <span> whose surrounding text contains "Ref client", and read the address
+      // from the block's paragraph — independent of the exact p/div nesting.
+      const addressElement = contractInfosElement.querySelector('p')
+      const foundAddress = addressElement?.textContent
         .replace(/\n/g, '')
         .replace(',', '')
         .trim()
-      const foundContractRef = refClientParagraph
-        ?.querySelector('span')
-        ?.textContent.trim()
+      const refSpan = Array.from(
+        contractInfosElement.querySelectorAll('span')
+      ).find(span => span.parentElement?.textContent.includes('Ref client'))
+      const foundContractRef = refSpan?.textContent.trim()
       if (!foundAddress || !foundContractRef) {
         this.log(
           'warn',
