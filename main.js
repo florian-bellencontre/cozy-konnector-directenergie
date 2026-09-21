@@ -6603,11 +6603,8 @@ class TemplateContentScript extends cozy_clisk_dist_contentscript__WEBPACK_IMPOR
       await this.PromiseRaceWithError(
         [
           this.waitForErrors(),
-          this.waitForElementInWorker('h2', {
-            includesText: 'Conso électricité'
-          }),
-          this.waitForElementInWorker('h2', {
-            includesText: 'Conso gaz'
+          this.waitForElementInWorker('h1', {
+            includesText: 'Bienvenue sur votre Espace Client'
           }),
           this.waitForElementInWorker('p', {
             includesText:
@@ -6899,11 +6896,8 @@ class TemplateContentScript extends cozy_clisk_dist_contentscript__WEBPACK_IMPOR
           this.waitForElementInWorker(
             '#captcha__frame, a[href="/clients/mon-compte/gerer-mes-comptes"]'
           ),
-          this.waitForElementInWorker('h2', {
-            includesText: 'Conso électricité'
-          }),
-          this.waitForElementInWorker('h2', {
-            includesText: 'Conso gaz'
+          this.waitForElementInWorker('h1', {
+            includesText: 'Bienvenue sur votre Espace Client'
           }),
           this.waitForElementInWorker('p', {
             includesText:
